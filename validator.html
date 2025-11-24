@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blackboard Schedule Validator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen p-4 md:p-8">
+
+    <div class="max-w-5xl mx-auto bg-white shadow-xl rounded-xl overflow-hidden border border-slate-200">
+        
+        <!-- Header -->
+        <div class="bg-emerald-700 p-6 text-white flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold flex items-center gap-2">
+                    <i class="fas fa-check-double"></i> Schedule Validator v1.0
+                </h1>
+                <p class="text-emerald-100 text-sm mt-1">Set the time here to verify against your dates.</p>
+            </div>
+            <a href="index.html" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold py-2 px-4 rounded transition-colors flex items-center gap-2">
+                <i class="fas fa-arrow-left"></i> Back to Scheduler
+            </a>
+        </div>
+
+        <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6 border-b border-slate-200">
+            <!-- Step 1: CSV -->
+            <div class="bg-slate-50 p-4 rounded border border-slate-200">
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">1. Upload Schedule (CSV)</label>
+                <input type="file" id="csvFile" accept=".csv" class="block w-full text-sm text-slate-500
+                    file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold
+                    file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 mb-2"/>
+                <p id="csvStatus" class="text-xs text-slate-400">No file selected.</p>
+            </div>
+
+            <!-- Step 2: HTML -->
+            <div class="bg-slate-50 p-4 rounded border border-slate-200">
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">2. Upload Blackboard (HTML)</label>
+                <input type="file" id="htmlFile" accept=".html,.htm" class="block w-full text-sm text-slate-500
+                    file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold
+                    file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 mb-2"/>
+                <p id="htmlStatus" class="text-xs text-slate-400">No file selected.</p>
+            </div>
+
+            <!-- Step 3: Time Setting -->
+            <div class="bg-slate-50 p-4 rounded border border-slate-200">
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">3. Expected Time</label>
+                <p class="text-xs text-slate-500 mb-2">The time to verify for every module.</p>
+                <input type="time" id="globalTime" value="23:59" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-emerald-500 focus:outline-none"/>
+            </div>
+        </div>
+
+        <div class="p-6 bg-slate-50 flex justify-end">
+            <button onclick="runValidation()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-6 rounded shadow transition-colors flex items-center gap-2">
+                <i class="fas fa-search"></i> Verify Schedule
+            </button>
+        </div>
+
+        <div class="p-0 overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-slate-100 border-t border-slate-200">
+                    <tr>
+                        <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b">Module</th>
+                        <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b">Expected Due</th>
+                        <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b">Status</th>
+                        <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b w-1/2">Context Found</th>
+                    </tr>
+                </thead>
+                <tbody id="resultBody" class="divide-y divide-slate-100 text-sm">
+                    <tr><td colspan="4" class="p-8 text-center text-slate-400 italic">Results will appear here.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let csvContent = null;
+        let htmlContent = null;
+
+        document.getElementById('csvFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                csvContent = e.target.result;
+                document.getElementById('csvStatus').innerText = "Loaded: " + file.name;
+                document.getElementById('csvStatus').className = "text-xs text-emerald-600 font-bold";
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('htmlFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                htmlContent = e.target.result;
+                document.getElementById('htmlStatus').innerText = "Loaded: " + file.name;
+                document.getElementById('htmlStatus').className = "text-xs text-blue-600 font-bold";
+            };
+            reader.readAsText(file);
+        });
+
+        function parseCSV(text) {
+            const lines = text.split('\n').filter(l => l.trim());
+            const result = [];
+            for (let i = 1; i < lines.length; i++) {
+                const cols = lines[i].split(',');
+                if (cols.length >= 3) {
+                    result.push({
+                        module: cols[0].trim(),
+                        classDate: cols[1].trim(),
+                        dueDate: cols[2].trim() // Just the date part "11/24/25" usually
+                    });
+                }
+            }
+            return result;
+        }
+
+        function extractTextFromHTML(htmlString) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlString, 'text/html');
+            return doc.body.textContent || "";
+        }
+
+        // Convert "23:59" to "11:59 PM" for display and regex searching
+        function formatTime12(timeStr) {
+            const [hours, mins] = timeStr.split(':');
+            let h = parseInt(hours);
+            const m = parseInt(mins);
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            h = h % 12;
+            h = h ? h : 12;
+            return {
+                display: `${h}:${mins} ${ampm}`,
+                regex: `${h}:${mins}\\s*${ampm}` // Regex ready string
+            };
+        }
+
+        function runValidation() {
+            if (!csvContent || !htmlContent) {
+                alert("Please upload both CSV and HTML files first.");
+                return;
+            }
+
+            const schedule = parseCSV(csvContent);
+            const rawPageText = extractTextFromHTML(htmlContent);
+            const pageText = rawPageText.replace(/\s+/g, ' ').toLowerCase();
+            
+            // Get Global Time Setting
+            const timeInput = document.getElementById('globalTime').value;
+            const timeObj = formatTime12(timeInput);
+            const expectedTimeDisplay = timeObj.display;
+            const timeRegexStr = timeObj.regex;
+
+            const tbody = document.getElementById('resultBody');
+            tbody.innerHTML = '';
+
+            schedule.forEach(row => {
+                const modMatch = row.module.match(/(\d+)/);
+                if (!modMatch) return;
+                const modNum = modMatch[1];
+
+                // Parse Date from CSV (ignoring any time in CSV)
+                const dateOnly = row.dueDate.split(' ')[0]; 
+                let dateParts = dateOnly.split(/[-/]/);
+                let month, day, year;
+                if (dateParts[0].length === 4) {
+                    year = parseInt(dateParts[0]); month = parseInt(dateParts[1]); day = parseInt(dateParts[2]);
+                } else {
+                    month = parseInt(dateParts[0]); day = parseInt(dateParts[1]); year = parseInt(dateParts[2]);
+                    if (year < 100) year += 2000;
+                }
+
+                // Construct full expected string for display
+                const fullExpected = `${dateOnly} ${expectedTimeDisplay}`;
+                
+                const modRegex = new RegExp(`module\\s*0?${modNum}\\b`, 'gi');
+                
+                let foundDate = false;
+                let foundTime = false;
+                let statusHtml = '';
+                let contextHtml = 'Module text not found.';
+                let rowClass = 'bg-yellow-50';
+
+                const matches = [...pageText.matchAll(modRegex)];
+
+                if (matches.length > 0) {
+                    const dateRegex = new RegExp(`${month}[/-]${day}`, 'g');
+                    const timeRegex = new RegExp(timeRegexStr, 'i');
+                    
+                    for (const m of matches) {
+                        const index = m.index;
+                        const start = Math.max(0, index - 300);
+                        const end = Math.min(pageText.length, index + 300);
+                        const snippet = pageText.substring(start, end);
+
+                        if (dateRegex.test(snippet)) {
+                            foundDate = true;
+                            if (timeRegex.test(snippet)) {
+                                foundTime = true;
+                            }
+                            
+                            if (foundDate && foundTime) {
+                                statusHtml = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">MATCH</span>';
+                                const highlighted = snippet.replace(m[0], `<b class="bg-yellow-200 text-black px-1 uppercase">${m[0]}</b>`);
+                                contextHtml = `...${highlighted}...`;
+                                rowClass = 'bg-white';
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!foundDate) {
+                        statusHtml = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">DATE MISMATCH</span>';
+                        contextHtml = `Found "Module ${modNum}" but date ${month}/${day} not nearby.`;
+                        rowClass = 'bg-red-50';
+                    } else if (!foundTime) {
+                        statusHtml = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">TIME MISMATCH</span>';
+                        contextHtml = `Found "Module ${modNum}" and date, but time ${expectedTimeDisplay} not nearby.`;
+                        rowClass = 'bg-orange-50';
+                    }
+
+                } else {
+                    statusHtml = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">NOT FOUND</span>';
+                }
+
+                const tr = document.createElement('tr');
+                tr.className = `${rowClass} border-b border-slate-100 hover:bg-slate-50 transition-colors`;
+                tr.innerHTML = `
+                    <td class="p-4 font-medium text-slate-700">${row.module}</td>
+                    <td class="p-4 text-slate-600">${fullExpected}</td>
+                    <td class="p-4">${statusHtml}</td>
+                    <td class="p-4 text-xs text-slate-500 font-mono leading-relaxed">${contextHtml}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+</html>

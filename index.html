@@ -16,11 +16,17 @@
     <div class="max-w-4xl mx-auto bg-white shadow-xl rounded-xl overflow-hidden border border-slate-200">
         
         <!-- Header -->
-        <div class="bg-indigo-600 p-6 text-white">
-            <h1 class="text-2xl font-bold flex items-center gap-2">
-                <i class="fas fa-calendar-alt"></i> Blackboard Scheduler
-            </h1>
-            <p class="text-indigo-100 text-sm mt-1">Plan your semester modules and due dates automatically.</p>
+        <div class="bg-indigo-600 p-6 text-white flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold flex items-center gap-2">
+                    <i class="fas fa-calendar-alt"></i> Blackboard Scheduler
+                </h1>
+                <p class="text-indigo-100 text-sm mt-1">Plan your semester modules.</p>
+            </div>
+            <!-- Navigation to Validator -->
+            <a href="validator.html" class="bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-semibold py-2 px-4 rounded transition-colors flex items-center gap-2">
+                Validator Tool <i class="fas fa-arrow-right"></i>
+            </a>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-0">
@@ -39,18 +45,18 @@
                     <!-- Due Date Logic -->
                     <div class="mb-5">
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Due Day of Week</label>
-                        <div class="flex items-center gap-2">
-                            <select id="dueDay" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
-                                <option value="0">Sunday</option>
-                                <option value="1">Monday</option>
-                                <option value="2">Tuesday</option>
-                                <option value="3">Wednesday</option>
-                                <option value="4">Thursday</option>
-                                <option value="5">Friday</option>
-                                <option value="6">Saturday</option>
-                            </select>
-                        </div>
-                        <p class="text-xs text-slate-400 mt-1">Calculates the next occurrence of this day.</p>
+                        <select id="dueDay" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white mb-3">
+                            <option value="0">Sunday</option>
+                            <option value="1">Monday</option>
+                            <option value="2">Tuesday</option>
+                            <option value="3">Wednesday</option>
+                            <option value="4">Thursday</option>
+                            <option value="5">Friday</option>
+                            <option value="6">Saturday</option>
+                        </select>
+                        
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Due Time (For Export)</label>
+                        <input type="time" id="dueTime" value="23:59" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                     </div>
 
                     <!-- Skip Dates -->
@@ -99,7 +105,6 @@
     </div>
 
     <script>
-        // Set today's date as default
         document.getElementById('startDate').valueAsDate = new Date();
 
         let generatedData = [];
@@ -107,45 +112,38 @@
         function parseDateString(dateStr) {
             const parts = dateStr.trim().split(/[-/.]/);
             if (parts.length !== 3) return null;
-
             let y, m, d;
-
-            // Check if first part is Year (4 digits) like 2025-11-23
             if (parts[0].length === 4) {
                 y = parseInt(parts[0]);
                 m = parseInt(parts[1]) - 1;
                 d = parseInt(parts[2]);
             } else {
-                // Assume MM/DD/YY or MM/DD/YYYY
                 m = parseInt(parts[0]) - 1;
                 d = parseInt(parts[1]);
                 y = parseInt(parts[2]);
-                
-                // Handle 2 digit year (e.g. 25 -> 2025)
                 if (y < 100) y += 2000;
             }
-
             return new Date(y, m, d);
         }
 
-        // Formatting for display: MM/DD/YY (Day)
-        function formatDate(dateObj) {
-            const y = dateObj.getFullYear().toString().slice(-2);
-            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const d = String(dateObj.getDate()).padStart(2, '0');
-            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            return `${m}/${d}/${y} (${days[dateObj.getDay()]})`;
+        // Format to 12-hour time (e.g., 11:59 PM)
+        function formatTime12(timeStr) {
+            const [hours, mins] = timeStr.split(':');
+            let h = parseInt(hours);
+            const m = parseInt(mins);
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            h = h % 12;
+            h = h ? h : 12; // the hour '0' should be '12'
+            return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
         }
-        
-        // Formatting for CSV: MM/DD/YY
-        function formatDateCSV(dateObj) {
+
+        function formatDate(dateObj) {
             const y = dateObj.getFullYear().toString().slice(-2);
             const m = String(dateObj.getMonth() + 1).padStart(2, '0');
             const d = String(dateObj.getDate()).padStart(2, '0');
             return `${m}/${d}/${y}`;
         }
         
-        // Internal format for comparison logic (YYYY-MM-DD is best for code logic)
         function formatInternalCheck(dateObj) {
             const y = dateObj.getFullYear();
             const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -156,6 +154,7 @@
         function generateSchedule() {
             const startDateInput = document.getElementById('startDate').value;
             const dueDayIndex = parseInt(document.getElementById('dueDay').value);
+            const dueTimeInput = document.getElementById('dueTime').value;
             const skipInput = document.getElementById('skipDates').value;
 
             if (!startDateInput) {
@@ -163,7 +162,6 @@
                 return;
             }
 
-            // Parse skip dates: User types MM/DD/YY, we convert to internal YYYY-MM-DD
             const skipDates = new Set();
             const tokens = skipInput.split(/[\n,]/);
             tokens.forEach(t => {
@@ -176,7 +174,8 @@
                 }
             });
 
-            // Prepare logic
+            const formattedTime = formatTime12(dueTimeInput);
+
             let currentDate = parseDateString(startDateInput);
             let moduleCount = 1;
             generatedData = [];
@@ -184,11 +183,9 @@
             const tbody = document.getElementById('tableBody');
             tbody.innerHTML = '';
             
-            // Generate 15 modules
             while (moduleCount <= 15) {
                 const dateStrForCheck = formatInternalCheck(currentDate);
 
-                // Check skip
                 if (skipDates.has(dateStrForCheck)) {
                     const row = document.createElement('tr');
                     row.className = "bg-red-50";
@@ -200,30 +197,30 @@
                     tbody.appendChild(row);
 
                     currentDate.setDate(currentDate.getDate() + 7);
-                    continue; // Push subsequent modules
+                    continue;
                 }
 
-                // Calculate Due Date
                 const currentDayIndex = currentDate.getDay();
                 let daysToAdd = (dueDayIndex - currentDayIndex + 7) % 7;
                 
                 let dueDate = new Date(currentDate);
                 dueDate.setDate(dueDate.getDate() + daysToAdd);
 
-                // Add to Data Array for CSV
+                const dateStr = formatDate(dueDate);
+                const dueDateTime = `${dateStr} ${formattedTime}`;
+
                 generatedData.push({
                     module: `Module ${moduleCount}`,
-                    classDate: formatDateCSV(currentDate),
-                    dueDate: formatDateCSV(dueDate)
+                    classDate: formatDate(currentDate),
+                    dueDate: dueDateTime
                 });
 
-                // Render Table Row
                 const row = document.createElement('tr');
                 row.className = "hover:bg-slate-50 transition-colors";
                 row.innerHTML = `
                     <td class="p-3 font-medium text-slate-700">Module ${moduleCount}</td>
                     <td class="p-3 text-slate-600">${formatDate(currentDate)}</td>
-                    <td class="p-3 font-semibold text-indigo-600">${formatDate(dueDate)}</td>
+                    <td class="p-3 font-semibold text-indigo-600">${dueDateTime}</td>
                 `;
                 tbody.appendChild(row);
 
