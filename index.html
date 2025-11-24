@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blackboard Module Scheduler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto bg-white shadow-xl rounded-xl overflow-hidden border border-slate-200">
+        
+        <!-- Header -->
+        <div class="bg-indigo-600 p-6 text-white">
+            <h1 class="text-2xl font-bold flex items-center gap-2">
+                <i class="fas fa-calendar-alt"></i> Blackboard Scheduler
+            </h1>
+            <p class="text-indigo-100 text-sm mt-1">Plan your semester modules and due dates automatically.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-0">
+            
+            <!-- Controls Sidebar -->
+            <div class="p-6 bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 col-span-1">
+                <form id="scheduleForm" onsubmit="event.preventDefault(); generateSchedule();">
+                    
+                    <!-- Start Date -->
+                    <div class="mb-5">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">First Class Date</label>
+                        <input type="date" id="startDate" required
+                            class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-colors">
+                    </div>
+
+                    <!-- Due Date Logic -->
+                    <div class="mb-5">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Due Day of Week</label>
+                        <div class="flex items-center gap-2">
+                            <select id="dueDay" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
+                                <option value="0">Sunday</option>
+                                <option value="1">Monday</option>
+                                <option value="2">Tuesday</option>
+                                <option value="3">Wednesday</option>
+                                <option value="4">Thursday</option>
+                                <option value="5">Friday</option>
+                                <option value="6">Saturday</option>
+                            </select>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-1">Calculates the next occurrence of this day.</p>
+                    </div>
+
+                    <!-- Skip Dates -->
+                    <div class="mb-6">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Skip Dates (YYYY-MM-DD)</label>
+                        <p class="text-xs text-slate-400 mb-2">Enter the exact CLASS date you want to skip.</p>
+                        <textarea id="skipDates" rows="4" placeholder="2023-11-23&#10;2023-12-25"
+                            class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono text-sm"></textarea>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex flex-col gap-2">
+                        <button type="submit" 
+                            class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2">
+                            <i class="fas fa-play"></i> Generate
+                        </button>
+                        <button type="button" onclick="exportCSV()" id="exportBtn" disabled
+                            class="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2">
+                            <i class="fas fa-file-csv"></i> Export CSV
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Results Table -->
+            <div class="p-0 col-span-2 bg-white max-h-[600px] overflow-y-auto">
+                <div id="emptyState" class="h-full flex flex-col items-center justify-center text-slate-400 p-10">
+                    <i class="fas fa-calendar-week text-5xl mb-4 opacity-20"></i>
+                    <p>Enter your dates and click Generate</p>
+                </div>
+
+                <table id="resultTable" class="w-full text-left border-collapse hidden">
+                    <thead class="bg-slate-100 sticky top-0 shadow-sm">
+                        <tr>
+                            <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">Module</th>
+                            <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">Class Date</th>
+                            <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">Due Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="divide-y divide-slate-100">
+                        <!-- Rows generated here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Set today's date as default
+        document.getElementById('startDate').valueAsDate = new Date();
+
+        let generatedData = [];
+
+        function parseDateString(dateStr) {
+            // Parses YYYY-MM-DD manually to avoid timezone issues with standard Date parsing
+            const parts = dateStr.trim().split(/[-/.]/);
+            if (parts.length !== 3) return null;
+            // Month is 0-indexed in JS Date
+            return new Date(parts[0], parts[1] - 1, parts[2]);
+        }
+
+        function formatDate(dateObj) {
+            const y = dateObj.getFullYear();
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            return `${y}-${m}-${d} (${days[dateObj.getDay()]})`;
+        }
+        
+        // This function uses LOCAL time to format the string, solving the timezone bug
+        function formatDateCheck(dateObj) {
+            const y = dateObj.getFullYear();
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function generateSchedule() {
+            const startDateInput = document.getElementById('startDate').value;
+            const dueDayIndex = parseInt(document.getElementById('dueDay').value);
+            const skipInput = document.getElementById('skipDates').value;
+
+            if (!startDateInput) {
+                alert("Please select a start date.");
+                return;
+            }
+
+            // Parse skip dates
+            const skipDates = new Set();
+            const tokens = skipInput.split(/[\n,]/);
+            tokens.forEach(t => {
+                const cleanT = t.trim();
+                if (cleanT) skipDates.add(cleanT);
+            });
+
+            // Prepare logic
+            let currentDate = parseDateString(startDateInput);
+            let moduleCount = 1;
+            generatedData = [];
+            
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            // Generate 15 modules
+            while (moduleCount <= 15) {
+                // FIX: Use local formatter instead of toISOString to prevent timezone shifting
+                const dateStrForCheck = formatDateCheck(currentDate);
+
+                // Check skip
+                if (skipDates.has(dateStrForCheck)) {
+                    // Render Skip Row
+                    const row = document.createElement('tr');
+                    row.className = "bg-red-50";
+                    row.innerHTML = `
+                        <td class="p-3 text-red-500 font-bold border-l-4 border-red-500">NO CLASS</td>
+                        <td class="p-3 text-red-500">${formatDate(currentDate)}</td>
+                        <td class="p-3 text-slate-400 italic">Skipped</td>
+                    `;
+                    tbody.appendChild(row);
+
+                    // Add 7 days to check the next week
+                    currentDate.setDate(currentDate.getDate() + 7);
+                    // Continue loop without incrementing moduleCount (THE PUSH)
+                    continue;
+                }
+
+                // Calculate Due Date based on Day of Week Selection
+                const currentDayIndex = currentDate.getDay();
+                let daysToAdd = (dueDayIndex - currentDayIndex + 7) % 7;
+                
+                let dueDate = new Date(currentDate);
+                dueDate.setDate(dueDate.getDate() + daysToAdd);
+
+                // Add to Data Array for CSV
+                generatedData.push({
+                    module: `Module ${moduleCount}`,
+                    classDate: formatDateCheck(currentDate),
+                    dueDate: formatDateCheck(dueDate)
+                });
+
+                // Render Table Row
+                const row = document.createElement('tr');
+                row.className = "hover:bg-slate-50 transition-colors";
+                row.innerHTML = `
+                    <td class="p-3 font-medium text-slate-700">Module ${moduleCount}</td>
+                    <td class="p-3 text-slate-600">${formatDate(currentDate)}</td>
+                    <td class="p-3 font-semibold text-indigo-600">${formatDate(dueDate)}</td>
+                `;
+                tbody.appendChild(row);
+
+                // Increment Module Count only when a class actually happens
+                moduleCount++;
+                currentDate.setDate(currentDate.getDate() + 7);
+            }
+
+            document.getElementById('resultTable').classList.remove('hidden');
+            document.getElementById('emptyState').classList.add('hidden');
+            document.getElementById('exportBtn').disabled = false;
+        }
+
+        function exportCSV() {
+            if (generatedData.length === 0) return;
+
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Module,Class Date,Due Date\n";
+
+            generatedData.forEach(row => {
+                csvContent += `${row.module},${row.classDate},${row.dueDate}\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "blackboard_schedule.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
