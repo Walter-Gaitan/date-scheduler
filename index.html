@@ -55,9 +55,9 @@
 
                     <!-- Skip Dates -->
                     <div class="mb-6">
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Skip Dates (YYYY-MM-DD)</label>
-                        <p class="text-xs text-slate-400 mb-2">Enter the exact CLASS date you want to skip.</p>
-                        <textarea id="skipDates" rows="4" placeholder="2023-11-23&#10;2023-12-25"
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Skip Dates (MM/DD/YY)</label>
+                        <p class="text-xs text-slate-400 mb-2">Enter the exact CLASS date to skip.</p>
+                        <textarea id="skipDates" rows="4" placeholder="11/23/25&#10;12/25/25"
                             class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono text-sm"></textarea>
                     </div>
 
@@ -105,23 +105,48 @@
         let generatedData = [];
 
         function parseDateString(dateStr) {
-            // Parses YYYY-MM-DD manually to avoid timezone issues with standard Date parsing
             const parts = dateStr.trim().split(/[-/.]/);
             if (parts.length !== 3) return null;
-            // Month is 0-indexed in JS Date
-            return new Date(parts[0], parts[1] - 1, parts[2]);
+
+            let y, m, d;
+
+            // Check if first part is Year (4 digits) like 2025-11-23
+            if (parts[0].length === 4) {
+                y = parseInt(parts[0]);
+                m = parseInt(parts[1]) - 1;
+                d = parseInt(parts[2]);
+            } else {
+                // Assume MM/DD/YY or MM/DD/YYYY
+                m = parseInt(parts[0]) - 1;
+                d = parseInt(parts[1]);
+                y = parseInt(parts[2]);
+                
+                // Handle 2 digit year (e.g. 25 -> 2025)
+                if (y < 100) y += 2000;
+            }
+
+            return new Date(y, m, d);
         }
 
+        // Formatting for display: MM/DD/YY (Day)
         function formatDate(dateObj) {
-            const y = dateObj.getFullYear();
+            const y = dateObj.getFullYear().toString().slice(-2);
             const m = String(dateObj.getMonth() + 1).padStart(2, '0');
             const d = String(dateObj.getDate()).padStart(2, '0');
             const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            return `${y}-${m}-${d} (${days[dateObj.getDay()]})`;
+            return `${m}/${d}/${y} (${days[dateObj.getDay()]})`;
         }
         
-        // This function uses LOCAL time to format the string, solving the timezone bug
-        function formatDateCheck(dateObj) {
+        // Formatting for CSV: MM/DD/YY
+        function formatDateCSV(dateObj) {
+            const y = dateObj.getFullYear().toString().slice(-2);
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            return `${m}/${d}/${y}`;
+        }
+        
+        // Internal format for comparison logic (YYYY-MM-DD is best for code logic)
+        function formatInternalCheck(dateObj) {
             const y = dateObj.getFullYear();
             const m = String(dateObj.getMonth() + 1).padStart(2, '0');
             const d = String(dateObj.getDate()).padStart(2, '0');
@@ -138,12 +163,17 @@
                 return;
             }
 
-            // Parse skip dates
+            // Parse skip dates: User types MM/DD/YY, we convert to internal YYYY-MM-DD
             const skipDates = new Set();
             const tokens = skipInput.split(/[\n,]/);
             tokens.forEach(t => {
                 const cleanT = t.trim();
-                if (cleanT) skipDates.add(cleanT);
+                if (cleanT) {
+                    const d = parseDateString(cleanT);
+                    if (d && !isNaN(d)) {
+                        skipDates.add(formatInternalCheck(d));
+                    }
+                }
             });
 
             // Prepare logic
@@ -156,12 +186,10 @@
             
             // Generate 15 modules
             while (moduleCount <= 15) {
-                // FIX: Use local formatter instead of toISOString to prevent timezone shifting
-                const dateStrForCheck = formatDateCheck(currentDate);
+                const dateStrForCheck = formatInternalCheck(currentDate);
 
                 // Check skip
                 if (skipDates.has(dateStrForCheck)) {
-                    // Render Skip Row
                     const row = document.createElement('tr');
                     row.className = "bg-red-50";
                     row.innerHTML = `
@@ -171,13 +199,11 @@
                     `;
                     tbody.appendChild(row);
 
-                    // Add 7 days to check the next week
                     currentDate.setDate(currentDate.getDate() + 7);
-                    // Continue loop without incrementing moduleCount (THE PUSH)
-                    continue;
+                    continue; // Push subsequent modules
                 }
 
-                // Calculate Due Date based on Day of Week Selection
+                // Calculate Due Date
                 const currentDayIndex = currentDate.getDay();
                 let daysToAdd = (dueDayIndex - currentDayIndex + 7) % 7;
                 
@@ -187,8 +213,8 @@
                 // Add to Data Array for CSV
                 generatedData.push({
                     module: `Module ${moduleCount}`,
-                    classDate: formatDateCheck(currentDate),
-                    dueDate: formatDateCheck(dueDate)
+                    classDate: formatDateCSV(currentDate),
+                    dueDate: formatDateCSV(dueDate)
                 });
 
                 // Render Table Row
@@ -201,7 +227,6 @@
                 `;
                 tbody.appendChild(row);
 
-                // Increment Module Count only when a class actually happens
                 moduleCount++;
                 currentDate.setDate(currentDate.getDate() + 7);
             }
