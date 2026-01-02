@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,13 +9,17 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
-        body { font-family: 'Inter', sans-serif; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+        }
     </style>
 </head>
+
 <body class="bg-slate-50 text-slate-800 min-h-screen p-4 md:p-8">
 
     <div class="max-w-4xl mx-auto bg-white shadow-xl rounded-xl overflow-hidden border border-slate-200">
-        
+
         <!-- Header -->
         <div class="bg-indigo-600 p-6 text-white flex justify-between items-center">
             <div>
@@ -24,28 +29,32 @@
                 <p class="text-indigo-100 text-sm mt-1">Plan your semester modules.</p>
             </div>
             <!-- Navigation to Validator -->
-            <a href="validator.html" class="bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-semibold py-2 px-4 rounded transition-colors flex items-center gap-2">
+            <a href="validator.html"
+                class="bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-semibold py-2 px-4 rounded transition-colors flex items-center gap-2">
                 Validator Tool <i class="fas fa-arrow-right"></i>
             </a>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-0">
-            
+
             <!-- Controls Sidebar -->
             <div class="p-6 bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 col-span-1">
                 <form id="scheduleForm" onsubmit="event.preventDefault(); generateSchedule();">
-                    
+
                     <!-- Start Date -->
                     <div class="mb-5">
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">First Class Date</label>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">First Class
+                            Date</label>
                         <input type="date" id="startDate" required
                             class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-colors">
                     </div>
 
                     <!-- Due Date Logic -->
                     <div class="mb-5">
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Due Day of Week</label>
-                        <select id="dueDay" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white mb-3">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Due Day of
+                            Week</label>
+                        <select id="dueDay"
+                            class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white mb-3">
                             <option value="0">Sunday</option>
                             <option value="1">Monday</option>
                             <option value="2">Tuesday</option>
@@ -54,14 +63,17 @@
                             <option value="5">Friday</option>
                             <option value="6">Saturday</option>
                         </select>
-                        
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Due Time (For Export)</label>
-                        <input type="time" id="dueTime" value="23:59" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Due Time
+                            (For Export)</label>
+                        <input type="time" id="dueTime" value="23:59"
+                            class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                     </div>
 
                     <!-- Skip Dates -->
                     <div class="mb-6">
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Skip Dates (MM/DD/YY)</label>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Skip Dates
+                            (MM/DD/YY)</label>
                         <p class="text-xs text-slate-400 mb-2">Enter the exact CLASS date to skip.</p>
                         <textarea id="skipDates" rows="4" placeholder="11/23/25&#10;12/25/25"
                             class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono text-sm"></textarea>
@@ -69,7 +81,7 @@
 
                     <!-- Action Buttons -->
                     <div class="flex flex-col gap-2">
-                        <button type="submit" 
+                        <button type="submit"
                             class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded transition-colors flex items-center justify-center gap-2">
                             <i class="fas fa-play"></i> Generate
                         </button>
@@ -91,9 +103,15 @@
                 <table id="resultTable" class="w-full text-left border-collapse hidden">
                     <thead class="bg-slate-100 sticky top-0 shadow-sm">
                         <tr>
-                            <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">Module</th>
-                            <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">Class Date</th>
-                            <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">Due Date</th>
+                            <th
+                                class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">
+                                Module</th>
+                            <th
+                                class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">
+                                Class Date</th>
+                            <th
+                                class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">
+                                Due Date</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody" class="divide-y divide-slate-100">
@@ -143,12 +161,17 @@
             const d = String(dateObj.getDate()).padStart(2, '0');
             return `${m}/${d}/${y}`;
         }
-        
+
         function formatInternalCheck(dateObj) {
             const y = dateObj.getFullYear();
             const m = String(dateObj.getMonth() + 1).padStart(2, '0');
             const d = String(dateObj.getDate()).padStart(2, '0');
             return `${y}-${m}-${d}`;
+        }
+
+        function getDayName(dateObj) {
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            return days[dateObj.getDay()];
         }
 
         function generateSchedule() {
@@ -179,10 +202,10 @@
             let currentDate = parseDateString(startDateInput);
             let moduleCount = 1;
             generatedData = [];
-            
+
             const tbody = document.getElementById('tableBody');
             tbody.innerHTML = '';
-            
+
             while (moduleCount <= 15) {
                 const dateStrForCheck = formatInternalCheck(currentDate);
 
@@ -191,7 +214,7 @@
                     row.className = "bg-red-50";
                     row.innerHTML = `
                         <td class="p-3 text-red-500 font-bold border-l-4 border-red-500">NO CLASS</td>
-                        <td class="p-3 text-red-500">${formatDate(currentDate)}</td>
+                        <td class="p-3 text-red-500">${formatDate(currentDate)} ${getDayName(currentDate)}</td>
                         <td class="p-3 text-slate-400 italic">Skipped</td>
                     `;
                     tbody.appendChild(row);
@@ -202,16 +225,16 @@
 
                 const currentDayIndex = currentDate.getDay();
                 let daysToAdd = (dueDayIndex - currentDayIndex + 7) % 7;
-                
+
                 let dueDate = new Date(currentDate);
                 dueDate.setDate(dueDate.getDate() + daysToAdd);
 
-                const dateStr = formatDate(dueDate);
+                const dateStr = `${formatDate(dueDate)} ${getDayName(dueDate)}`;
                 const dueDateTime = `${dateStr} ${formattedTime}`;
 
                 generatedData.push({
                     module: `Module ${moduleCount}`,
-                    classDate: formatDate(currentDate),
+                    classDate: `${formatDate(currentDate)} ${getDayName(currentDate)}`,
                     dueDate: dueDateTime
                 });
 
@@ -219,7 +242,7 @@
                 row.className = "hover:bg-slate-50 transition-colors";
                 row.innerHTML = `
                     <td class="p-3 font-medium text-slate-700">Module ${moduleCount}</td>
-                    <td class="p-3 text-slate-600">${formatDate(currentDate)}</td>
+                    <td class="p-3 text-slate-600">${formatDate(currentDate)} ${getDayName(currentDate)}</td>
                     <td class="p-3 font-semibold text-indigo-600">${dueDateTime}</td>
                 `;
                 tbody.appendChild(row);
@@ -253,4 +276,5 @@
         }
     </script>
 </body>
+
 </html>
