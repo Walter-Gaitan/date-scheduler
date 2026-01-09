@@ -41,6 +41,24 @@
             <div class="p-6 bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 col-span-1">
                 <form id="scheduleForm" onsubmit="event.preventDefault(); generateSchedule();">
 
+                    <!-- Load Course Preset -->
+                    <div class="mb-5">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                            Upload Schedule (.docx)
+                        </label>
+                        <input type="file" id="courseFile" accept=".docx" onchange="handleFileUpload(this)"
+                            class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 mb-2">
+
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 mt-4">
+                            Select Course
+                        </label>
+                        <select id="courseSelect" onchange="loadCoursePreset()" disabled
+                            class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white disabled:bg-slate-100 disabled:text-slate-400">
+                            <option value="">Upload a file first...</option>
+                        </select>
+                        <p class="text-xs text-slate-400 mt-1">Select a course to auto-fill start date & skips.</p>
+                    </div>
+
                     <!-- Start Date -->
                     <div class="mb-5">
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">First Class
@@ -96,8 +114,8 @@
             <!-- Results Table -->
             <div class="p-0 col-span-2 bg-white max-h-[600px] overflow-y-auto">
                 <div id="emptyState" class="h-full flex flex-col items-center justify-center text-slate-400 p-10">
-                    <i class="fas fa-calendar-week text-5xl mb-4 opacity-20"></i>
-                    <p>Enter your dates and click Generate</p>
+                    <i class="fas fa-file-upload text-5xl mb-4 opacity-20"></i>
+                    <p>Upload a .docx schedule to begin</p>
                 </div>
 
                 <table id="resultTable" class="w-full text-left border-collapse hidden">
@@ -122,8 +140,185 @@
         </div>
     </div>
 
+    <!-- Mammoth.js for .docx parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+
     <script>
         document.getElementById('startDate').valueAsDate = new Date();
+
+        // Default empty schedule
+        let semesterSchedule = [];
+
+        function handleFileUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (event) {
+                const arrayBuffer = event.target.result;
+                mammoth.convertToHtml({ arrayBuffer: arrayBuffer })
+                    .then(displayResult)
+                    .catch(handleError);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function displayResult(result) {
+            const html = result.value; // The generated HTML
+            parseCourseHtml(html);
+        }
+
+        function handleError(err) {
+            console.error(err);
+            alert("Error parsing document: " + err.message);
+        }
+
+        function parseCourseHtml(htmlString) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlString, 'text/html');
+            const table = doc.querySelector('table');
+
+            if (!table) {
+                alert("No table found in the document.");
+                return;
+            }
+
+            semesterSchedule = [];
+            const rows = Array.from(table.querySelectorAll('tr'));
+            let currentDay = "";
+            let rowIndex = 0;
+
+            // Skipping header row if it contains "Course No." or "Day"
+            if (rows.length > 0) {
+                const firstRowText = rows[0].innerText.toLowerCase();
+                if (firstRowText.includes("course") || firstRowText.includes("day")) {
+                    rowIndex = 1;
+                }
+            }
+
+            const codeArgs = /^[A-Z]{2,4}\d{3}\./; // Regex to detect course code
+
+            for (; rowIndex < rows.length; rowIndex++) {
+                const cells = rows[rowIndex].querySelectorAll('td');
+                // If shifted, we might have 5 cols (missing Day). If normal, 6 cols.
+                if (cells.length < 5) continue;
+
+                let code, name, startDateRaw, skipRaw;
+
+                // Check first cell to see if it's a Code or Day
+                const cell0Text = cells[0].innerText.trim();
+
+                if (codeArgs.test(cell0Text)) {
+                    // It's a Course Code -> Shifted row (Day merged/missing)
+                    code = cell0Text;
+                    name = cells[1].innerText.trim();
+                    startDateRaw = cells[2].innerText.trim();
+                    skipRaw = cells[4] ? cells[4].innerText.trim() : "";
+                } else {
+                    // It's a Day (or empty day placeholder) -> Normal 6 columns
+                    if (cells.length < 6) continue; // Must have 6 if not shifted
+
+                    const dayText = cell0Text.replace(/[\n\r]+/g, " ").trim();
+                    if (dayText) {
+                        currentDay = dayText;
+                    }
+
+                    code = cells[1].innerText.trim();
+                    name = cells[2].innerText.trim();
+                    startDateRaw = cells[3].innerText.trim();
+                    skipRaw = cells[5] ? cells[5].innerText.trim() : "";
+                }
+
+                if (!code || !startDateRaw) continue;
+
+                // Clean up start date (MM/DD/YY -> YYYY-MM-DD)
+                const startDate = parseDateToIso(startDateRaw);
+
+                // Parse skips
+                const skipDates = [];
+                const distinctDates = new Set();
+                const dateRegex = /(\d{1,2}\/\d{1,2}\/\d{2,4})/g;
+                let match;
+                while ((match = dateRegex.exec(skipRaw)) !== null) {
+                    const iso = parseDateToIso(match[0]);
+                    if (iso && !distinctDates.has(iso)) {
+                        skipDates.push(iso);
+                        distinctDates.add(iso);
+                    }
+                }
+
+                if (startDate) {
+                    semesterSchedule.push({
+                        code: code,
+                        name: `${name} (${currentDay})`,
+                        startDate: startDate,
+                        skipDates: skipDates
+                    });
+                }
+            }
+
+            populateCourseDropdown();
+            alert(`Parsed ${semesterSchedule.length} courses from the document.`);
+        }
+
+        function parseDateToIso(dateStr) {
+            // Expects MM/DD/YY or MM/DD/YYYY
+            const parts = dateStr.trim().split(/[\/\-\.]/);
+            if (parts.length !== 3) return null;
+
+            let m = parseInt(parts[0], 10);
+            let d = parseInt(parts[1], 10);
+            let y = parseInt(parts[2], 10);
+
+            if (isNaN(m) || isNaN(d) || isNaN(y)) return null;
+
+            // Handle 2 digit year
+            if (y < 100) y += 2000;
+
+            // Return YYYY-MM-DD
+            return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+
+        function populateCourseDropdown() {
+            const select = document.getElementById('courseSelect');
+            select.innerHTML = '<option value="">Manual Input</option>';
+
+            if (semesterSchedule.length === 0) {
+                select.disabled = true;
+                select.innerHTML = '<option value="">Upload a file first...</option>';
+                return;
+            }
+
+            select.disabled = false;
+            semesterSchedule.forEach(course => {
+                const option = document.createElement('option');
+                option.value = course.code;
+                option.textContent = `${course.code} - ${course.name}`;
+                select.appendChild(option);
+            });
+        }
+
+        function loadCoursePreset() {
+            const select = document.getElementById('courseSelect');
+            const selectedCode = select.value;
+
+            if (!selectedCode) return; // "Manual" selected
+
+            const course = semesterSchedule.find(c => c.code === selectedCode);
+            if (course) {
+                // Set Start Date
+                document.getElementById('startDate').value = course.startDate;
+
+                // Set Skip Dates
+                // Format YYYY-MM-DD to MM/DD/YY for the textarea
+                const formattedSkips = course.skipDates.map(dateStr => {
+                    const [y, m, d] = dateStr.split('-');
+                    return `${m}/${d}/${y.slice(2)}`;
+                }).join('\\n');
+
+                document.getElementById('skipDates').value = formattedSkips;
+            }
+        }
 
         let generatedData = [];
 
