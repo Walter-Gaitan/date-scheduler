@@ -41,10 +41,12 @@
             <div class="p-6 bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 col-span-1">
                 <form id="scheduleForm" onsubmit="event.preventDefault(); generateSchedule();">
 
+                    <!-- Load Course Preset -->
+                    <div class="mb-5">
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                            Upload Schedule
+                            Upload Schedule (.docx)
                         </label>
-                        <input type="file" id="courseFile" accept=".docx,.pdf" onchange="handleFileUpload(this)"
+                        <input type="file" id="courseFile" accept=".docx" onchange="handleFileUpload(this)"
                             class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 mb-2">
 
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 mt-4">
@@ -140,12 +142,6 @@
 
     <!-- Mammoth.js for .docx parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    <!-- PDF.js for .pdf parsing -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script>
-        // Set worker path for PDF.js
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    </script>
 
     <script>
         document.getElementById('startDate').valueAsDate = new Date();
@@ -158,43 +154,11 @@
             if (!file) return;
 
             const reader = new FileReader();
-            reader.onload = async function (event) {
+            reader.onload = function (event) {
                 const arrayBuffer = event.target.result;
-
-                if (file.name.toLowerCase().endsWith('.docx')) {
-                    mammoth.convertToHtml({ arrayBuffer: arrayBuffer })
-                        .then(displayResult)
-                        .catch(handleError);
-                } else if (file.name.toLowerCase().endsWith('.pdf')) {
-                    try {
-                        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                        let fullText = "";
-                        for (let i = 1; i <= pdf.numPages; i++) {
-                            const page = await pdf.getPage(i);
-                            const textContent = await page.getTextContent();
-                            // Group text items by their vertical position (y-coordinate)
-                            const items = textContent.items;
-                            const lines = {};
-                            items.forEach(item => {
-                                const y = Math.round(item.transform[5]); // y-coordinate
-                                if (!lines[y]) lines[y] = [];
-                                lines[y].push(item);
-                            });
-
-                            // Sort lines from top to bottom
-                            const sortedY = Object.keys(lines).sort((a, b) => b - a);
-                            sortedY.forEach(y => {
-                                // Sort items within a line from left to right
-                                const lineItems = lines[y].sort((a, b) => a.transform[4] - b.transform[4]);
-                                const lineText = lineItems.map(item => item.str).join("  "); // Use double spaces as delimiter
-                                fullText += lineText + "\n";
-                            });
-                        }
-                        parseCourseText(fullText);
-                    } catch (err) {
-                        handleError(err);
-                    }
-                }
+                mammoth.convertToHtml({ arrayBuffer: arrayBuffer })
+                    .then(displayResult)
+                    .catch(handleError);
             };
             reader.readAsArrayBuffer(file);
         }
@@ -207,69 +171,6 @@
         function handleError(err) {
             console.error(err);
             alert("Error parsing document: " + err.message);
-        }
-
-        function parseCourseText(text) {
-            const lines = text.split('\n').filter(l => l.trim());
-            semesterSchedule = [];
-            
-            const codeArgs = /^[A-Z]{2,4}\s*\d{3}\./; // Regex to detect course code
-            const dateRegex = /(\d{1,2}\/\d{1,2}\/\d{2,4})/g;
-
-            let currentDay = "TBD";
-
-            lines.forEach(line => {
-                // Heuristic: If line contains a lot of spaces, it might be a table row
-                // Or if it starts with a course code
-                const parts = line.trim().split(/\s{2,}/); // Split by 2+ spaces
-                
-                if (parts.length >= 3) {
-                    let code = "";
-                    let name = "";
-                    let startDateRaw = "";
-                    let skipRaw = "";
-
-                    // Try to find course code in first or second part
-                    if (codeArgs.test(parts[0])) {
-                        code = parts[0].trim();
-                        name = parts[1].trim();
-                        startDateRaw = parts[2].trim();
-                        skipRaw = parts[4] || "";
-                    } else if (parts.length >= 4 && codeArgs.test(parts[1])) {
-                        currentDay = parts[0].trim();
-                        code = parts[1].trim();
-                        name = parts[2].trim();
-                        startDateRaw = parts[3].trim();
-                        skipRaw = parts[5] || "";
-                    }
-
-                    if (code && startDateRaw) {
-                        const startDate = parseDateToIso(startDateRaw);
-                        if (startDate) {
-                            const skipDates = [];
-                            const distinctDates = new Set();
-                            let match;
-                            while ((match = dateRegex.exec(skipRaw)) !== null) {
-                                const iso = parseDateToIso(match[0]);
-                                if (iso && !distinctDates.has(iso)) {
-                                    skipDates.push(iso);
-                                    distinctDates.add(iso);
-                                }
-                            }
-
-                            semesterSchedule.push({
-                                code: code,
-                                name: `${name} ${currentDay ? '('+currentDay+')' : ''}`,
-                                startDate: startDate,
-                                skipDates: skipDates
-                            });
-                        }
-                    }
-                }
-            });
-
-            populateCourseDropdown();
-            alert(`Parsed ${semesterSchedule.length} courses from the document.`);
         }
 
         function parseCourseHtml(htmlString) {
@@ -295,7 +196,7 @@
                 }
             }
 
-            const codeArgs = /^[A-Z]{2,4}\s*\d{3}\./; // Regex to detect course code
+            const codeArgs = /^[A-Z]{2,4}\d{3}\./; // Regex to detect course code
 
             for (; rowIndex < rows.length; rowIndex++) {
                 const cells = rows[rowIndex].querySelectorAll('td');
