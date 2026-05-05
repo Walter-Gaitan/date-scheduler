@@ -402,13 +402,14 @@
 
                 // Build row string: join fragments (gap ≤ 3) directly;
                 // larger gaps get a space so regex word boundaries work.
-                let rowText = sorted[0].text;
+                let rowText = sorted[0].text.replace(/[\r\n]/g, ' ');
                 let prevEndX = sorted[0].x + (sorted[0].w > 0 ? sorted[0].w : sorted[0].text.length * 4);
 
                 for (let i = 1; i < sorted.length; i++) {
                     const it  = sorted[i];
                     const gap = it.x - prevEndX;
-                    rowText  += (gap <= 3) ? it.text : ' ' + it.text;
+                    const txt = it.text.replace(/[\r\n]/g, ' ');
+                    rowText  += (gap <= 3) ? txt : ' ' + txt;
                     prevEndX  = it.x + (it.w > 0 ? it.w : it.text.length * 4);
                 }
 
@@ -433,16 +434,8 @@
                 const startDate = parseDateToIso(dateMatch[0]);
                 if (!startDate) continue;
 
-                // Gather any additional dates after the start date as potential skip dates
-                // (in this PDF they are not skip dates but we include for completeness)
+                // Skip dates: PDF rows don't have skip dates (the second date is the end date)
                 const skipDates = [];
-                const seen = new Set([startDate]);
-                let dm;
-                dateRe.lastIndex = dateMatch.index + dateMatch[0].length;
-                while ((dm = dateRe.exec(rowText)) !== null) {
-                    const iso = parseDateToIso(dm[0]);
-                    if (iso && !seen.has(iso)) { skipDates.push(iso); seen.add(iso); }
-                }
 
                 // Extract course name: text between code end and first date
                 const nameRaw = rowText.slice(codeEnd, dateMatch.index).trim();
@@ -497,7 +490,7 @@
                 const formattedSkips = course.skipDates.map(dateStr => {
                     const [y, m, d] = dateStr.split('-');
                     return `${m}/${d}/${y.slice(2)}`;
-                }).join('\\n');
+                }).join('\n');
 
                 document.getElementById('skipDates').value = formattedSkips;
             }
