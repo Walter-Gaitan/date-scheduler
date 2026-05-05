@@ -6,9 +6,13 @@
     <title>Blackboard Schedule Validator</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- PDF.js for parsing PDF schedule tables -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
         body { font-family: 'Inter', sans-serif; }
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen p-4 md:p-8">
@@ -19,9 +23,9 @@
         <div class="bg-emerald-700 p-6 text-white flex justify-between items-center">
             <div>
                 <h1 class="text-2xl font-bold flex items-center gap-2">
-                    <i class="fas fa-check-double"></i> Schedule Validator v1.0
+                    <i class="fas fa-check-double"></i> Schedule Validator v2.0
                 </h1>
-                <p class="text-emerald-100 text-sm mt-1">Set the time here to verify against your dates.</p>
+                <p class="text-emerald-100 text-sm mt-1">Upload the PDF schedule and Blackboard HTML to verify dates.</p>
             </div>
             <a href="index.html" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold py-2 px-4 rounded transition-colors flex items-center gap-2">
                 <i class="fas fa-arrow-left"></i> Back to Scheduler
@@ -29,18 +33,26 @@
         </div>
 
         <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6 border-b border-slate-200">
-            <!-- Step 1: CSV -->
+            <!-- Step 1: PDF -->
             <div class="bg-slate-50 p-4 rounded border border-slate-200">
-                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">1. Upload Schedule (CSV)</label>
-                <input type="file" id="csvFile" accept=".csv" class="block w-full text-sm text-slate-500
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    <i class="fas fa-file-pdf text-red-500 mr-1"></i>1. Upload Schedule (PDF)
+                </label>
+                <input type="file" id="pdfFile" accept=".pdf" class="block w-full text-sm text-slate-500
                     file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold
-                    file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 mb-2"/>
-                <p id="csvStatus" class="text-xs text-slate-400">No file selected.</p>
+                    file:bg-red-50 file:text-red-700 hover:file:bg-red-100 mb-2"/>
+                <p id="pdfStatus" class="text-xs text-slate-400">No file selected.</p>
+                <div id="pdfPreview" class="mt-2 hidden">
+                    <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Parsed Modules:</p>
+                    <div id="pdfModuleList" class="max-h-40 overflow-y-auto text-xs text-slate-600 bg-white border border-slate-200 rounded p-2 font-mono leading-relaxed"></div>
+                </div>
             </div>
 
             <!-- Step 2: HTML -->
             <div class="bg-slate-50 p-4 rounded border border-slate-200">
-                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">2. Upload Blackboard (HTML)</label>
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    <i class="fas fa-file-code text-blue-500 mr-1"></i>2. Upload Blackboard (HTML)
+                </label>
                 <input type="file" id="htmlFile" accept=".html,.htm" class="block w-full text-sm text-slate-500
                     file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold
                     file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 mb-2"/>
@@ -49,14 +61,22 @@
 
             <!-- Step 3: Time Setting -->
             <div class="bg-slate-50 p-4 rounded border border-slate-200">
-                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">3. Expected Time</label>
+                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    <i class="fas fa-clock text-emerald-600 mr-1"></i>3. Expected Time
+                </label>
                 <p class="text-xs text-slate-500 mb-2">The time to verify for every module.</p>
                 <input type="time" id="globalTime" value="23:59" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-emerald-500 focus:outline-none"/>
+                <div class="mt-3">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Course Filter (optional)</label>
+                    <input type="text" id="courseFilter" placeholder="e.g. NUR301" class="w-full p-2 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+                    <p class="text-xs text-slate-400 mt-1">Leave blank to validate all courses.</p>
+                </div>
             </div>
         </div>
 
-        <div class="p-6 bg-slate-50 flex justify-end">
-            <button onclick="runValidation()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-6 rounded shadow transition-colors flex items-center gap-2">
+        <div class="p-6 bg-slate-50 flex justify-between items-center">
+            <p id="parseMessage" class="text-xs text-slate-400 italic"></p>
+            <button onclick="runValidation()" id="validateBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-6 rounded shadow transition-colors flex items-center gap-2">
                 <i class="fas fa-search"></i> Verify Schedule
             </button>
         </div>
@@ -65,139 +85,341 @@
             <table class="w-full text-left border-collapse">
                 <thead class="bg-slate-100 border-t border-slate-200">
                     <tr>
+                        <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b">Course</th>
                         <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b">Module</th>
                         <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b">Expected Due</th>
                         <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b">Status</th>
-                        <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b w-1/2">Context Found</th>
+                        <th class="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider border-b w-1/3">Context Found</th>
                     </tr>
                 </thead>
                 <tbody id="resultBody" class="divide-y divide-slate-100 text-sm">
-                    <tr><td colspan="4" class="p-8 text-center text-slate-400 italic">Results will appear here.</td></tr>
+                    <tr><td colspan="5" class="p-8 text-center text-slate-400 italic">Results will appear here after verification.</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
 
     <script>
-        let csvContent = null;
+        // Set PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        let parsedSchedule = []; // [{course, module, dueDate}]
         let htmlContent = null;
 
-        document.getElementById('csvFile').addEventListener('change', function(e) {
+        // ─── PDF Upload Handler ────────────────────────────────────────────────────
+        document.getElementById('pdfFile').addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if (!file) return;
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                csvContent = e.target.result;
-                document.getElementById('csvStatus').innerText = "Loaded: " + file.name;
-                document.getElementById('csvStatus').className = "text-xs text-emerald-600 font-bold";
-            };
-            reader.readAsText(file);
+
+            const statusEl = document.getElementById('pdfStatus');
+            statusEl.innerHTML = '<i class="fas fa-circle-notch spin mr-1"></i>Parsing PDF...';
+            statusEl.className = 'text-xs text-slate-500';
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+                parsedSchedule = await extractScheduleFromPdf(pdf);
+
+                if (parsedSchedule.length === 0) {
+                    statusEl.innerText = '⚠ No module data found. Check PDF format.';
+                    statusEl.className = 'text-xs text-orange-600 font-bold';
+                } else {
+                    statusEl.innerText = `✓ Loaded: ${file.name} (${parsedSchedule.length} entries)`;
+                    statusEl.className = 'text-xs text-emerald-600 font-bold';
+                    showPdfPreview();
+                }
+            } catch (err) {
+                console.error(err);
+                statusEl.innerText = '✗ Error parsing PDF: ' + err.message;
+                statusEl.className = 'text-xs text-red-600 font-bold';
+            }
         });
 
+        // ─── HTML Upload Handler ───────────────────────────────────────────────────
         document.getElementById('htmlFile').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
             const reader = new FileReader();
             reader.onload = function(e) {
                 htmlContent = e.target.result;
-                document.getElementById('htmlStatus').innerText = "Loaded: " + file.name;
-                document.getElementById('htmlStatus').className = "text-xs text-blue-600 font-bold";
+                document.getElementById('htmlStatus').innerText = '✓ Loaded: ' + file.name;
+                document.getElementById('htmlStatus').className = 'text-xs text-blue-600 font-bold';
             };
             reader.readAsText(file);
         });
 
-        function parseCSV(text) {
-            const lines = text.split('\n').filter(l => l.trim());
-            const result = [];
-            for (let i = 1; i < lines.length; i++) {
-                const cols = lines[i].split(',');
-                if (cols.length >= 3) {
-                    result.push({
-                        module: cols[0].trim(),
-                        classDate: cols[1].trim(),
-                        dueDate: cols[2].trim() // Just the date part "11/24/25" usually
-                    });
+        // ─── PDF Table Extraction ──────────────────────────────────────────────────
+        /**
+         * Strategy: Extract all text items with their X/Y positions, then group
+         * them into rows by Y-coordinate proximity, and columns by X-coordinate.
+         * This reconstructs the table structure from the PDF's raw text stream.
+         */
+        async function extractScheduleFromPdf(pdf) {
+            const entries = [];
+            const numPages = pdf.numPages;
+
+            for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const textContent = await page.getTextContent();
+
+                // Collect all text items with position
+                const items = textContent.items.map(item => ({
+                    text: item.str.trim(),
+                    x: Math.round(item.transform[4]),
+                    y: Math.round(item.transform[5])
+                })).filter(item => item.text.length > 0);
+
+                // Group items into rows by Y coordinate (within ±4px tolerance)
+                const rows = groupIntoRows(items, 4);
+
+                // Try to parse each row for schedule data
+                for (const row of rows) {
+                    const parsed = parseScheduleRow(row);
+                    if (parsed) entries.push(...parsed);
                 }
             }
-            return result;
+
+            return entries;
         }
 
-        function extractTextFromHTML(htmlString) {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(htmlString, 'text/html');
-            return doc.body.textContent || "";
+        function groupIntoRows(items, tolerance) {
+            // Sort by Y descending (PDF Y is bottom-up), then X ascending
+            items.sort((a, b) => b.y - a.y || a.x - b.x);
+
+            const rows = [];
+            let currentRow = [];
+            let currentY = null;
+
+            for (const item of items) {
+                if (currentY === null || Math.abs(item.y - currentY) <= tolerance) {
+                    currentRow.push(item);
+                    currentY = currentY === null ? item.y : (currentY + item.y) / 2;
+                } else {
+                    if (currentRow.length > 0) rows.push(currentRow);
+                    currentRow = [item];
+                    currentY = item.y;
+                }
+            }
+            if (currentRow.length > 0) rows.push(currentRow);
+
+            return rows;
         }
 
-        // Convert "23:59" to "11:59 PM" for display and regex searching
+        /**
+         * Parses a row (array of text items sorted by X) to find schedule data.
+         * Looks for patterns like:
+         *   - Course code (e.g. NUR301.01)
+         *   - Module number (e.g. 1, 2, ... 15)
+         *   - A date (MM/DD/YY or MM/DD/YYYY)
+         *
+         * The PDF schedule table columns are roughly:
+         *   Day | Course No. | Course Name | Start Date | Modules | Skip Dates
+         * But we only need: Course code, module count, start date.
+         *
+         * We return one entry per module found for the course row.
+         */
+        function parseScheduleRow(rowItems) {
+            // Build full row text by sorting items by X and joining
+            const sorted = [...rowItems].sort((a, b) => a.x - b.x);
+            const cells = mergeCellTokens(sorted);
+
+            if (cells.length < 2) return null;
+
+            const fullText = cells.join(' ');
+
+            // Look for a date anywhere in the row (MM/DD/YY or MM/DD/YYYY)
+            const dateMatch = fullText.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/);
+            if (!dateMatch) return null;
+
+            // Look for a course code: letters + digits + optional .section
+            const courseMatch = fullText.match(/\b([A-Z]{2,5}\d{3,4}(?:\.\d{1,3})?)\b/);
+            if (!courseMatch) return null;
+
+            // Look for a module count (a standalone number 1–15, or "15 wks" etc.)
+            // This is typically in the "Modules" column
+            const moduleCountMatch = fullText.match(/\b(1[0-5]|[1-9])\s*(?:wks?|weeks?|modules?)?\b/i);
+            const moduleCount = moduleCountMatch ? parseInt(moduleCountMatch[1]) : 15; // default 15
+
+            const courseCode = courseMatch[1];
+            const dateStr = dateMatch[0];
+
+            // We want one entry per module
+            const results = [];
+            for (let m = 1; m <= moduleCount; m++) {
+                results.push({
+                    course: courseCode,
+                    module: m,
+                    startDateStr: dateStr,
+                    rawRow: fullText
+                });
+            }
+            return results;
+        }
+
+        /**
+         * Merge adjacent text tokens that are close in X (within ~15px) into
+         * logical cell strings, splitting at larger gaps (column boundaries).
+         */
+        function mergeCellTokens(sortedItems) {
+            if (sortedItems.length === 0) return [];
+            const GAP_THRESHOLD = 20; // px gap to consider a new column
+
+            const cells = [];
+            let currentCell = sortedItems[0].text;
+            let lastX = sortedItems[0].x + (sortedItems[0].text.length * 5); // approx end
+
+            for (let i = 1; i < sortedItems.length; i++) {
+                const item = sortedItems[i];
+                const gap = item.x - lastX;
+                if (gap > GAP_THRESHOLD) {
+                    cells.push(currentCell.trim());
+                    currentCell = item.text;
+                } else {
+                    currentCell += ' ' + item.text;
+                }
+                lastX = item.x + (item.text.length * 5);
+            }
+            cells.push(currentCell.trim());
+            return cells.filter(c => c.length > 0);
+        }
+
+        function showPdfPreview() {
+            const preview = document.getElementById('pdfPreview');
+            const list = document.getElementById('pdfModuleList');
+            preview.classList.remove('hidden');
+
+            // Group by course for display
+            const byCourse = {};
+            for (const entry of parsedSchedule) {
+                if (!byCourse[entry.course]) byCourse[entry.course] = entry;
+            }
+
+            const lines = Object.values(byCourse).map(e =>
+                `${e.course} — starts ${e.startDateStr} (${parsedSchedule.filter(x => x.course === e.course).length} modules)`
+            );
+            list.innerHTML = lines.map(l => `<div class="py-0.5 border-b border-slate-100">${l}</div>`).join('');
+
+            document.getElementById('parseMessage').innerText =
+                `PDF parsed: ${Object.keys(byCourse).length} course(s), ${parsedSchedule.length} module entries.`;
+        }
+
+        // ─── Time helpers ──────────────────────────────────────────────────────────
         function formatTime12(timeStr) {
             const [hours, mins] = timeStr.split(':');
             let h = parseInt(hours);
-            const m = parseInt(mins);
             const ampm = h >= 12 ? 'PM' : 'AM';
             h = h % 12;
             h = h ? h : 12;
             return {
                 display: `${h}:${mins} ${ampm}`,
-                regex: `${h}:${mins}\\s*${ampm}` // Regex ready string
+                regex: `${h}:${mins}\\s*${ampm}`
             };
         }
 
+        // ─── Compute due date from start date + module offset ─────────────────────
+        /**
+         * Given a course start date and a module number (1-based),
+         * the due date is typically: startDate + (module - 1) * 7 days,
+         * then advanced to the Sunday of that week (or configured due day).
+         * For simplicity we compute: dueDate = startDate + (moduleIndex * 7) days.
+         * This mirrors how the scheduler works.
+         */
+        function computeDueDate(startDateStr, moduleNumber) {
+            // Parse MM/DD/YY or MM/DD/YYYY
+            const parts = startDateStr.split(/[\/\-]/);
+            if (parts.length !== 3) return null;
+            let [m, d, y] = parts.map(Number);
+            if (y < 100) y += 2000;
+
+            const start = new Date(y, m - 1, d);
+            if (isNaN(start.getTime())) return null;
+
+            // Module 1 due = first Sunday on or after start + 0 weeks
+            // Module N due = first Sunday on or after start + (N-1) weeks
+            // Find next Sunday from start
+            const dayOfWeek = start.getDay(); // 0=Sun
+            const daysToSunday = (7 - dayOfWeek) % 7;
+            const firstDue = new Date(start);
+            firstDue.setDate(start.getDate() + daysToSunday);
+
+            // Add (moduleNumber - 1) weeks
+            const dueDate = new Date(firstDue);
+            dueDate.setDate(firstDue.getDate() + (moduleNumber - 1) * 7);
+
+            return dueDate;
+        }
+
+        function formatDateShort(dateObj) {
+            const m = dateObj.getMonth() + 1;
+            const d = dateObj.getDate();
+            return `${m}/${d}`;
+        }
+
+        // ─── Main Validation ───────────────────────────────────────────────────────
         function runValidation() {
-            if (!csvContent || !htmlContent) {
-                alert("Please upload both CSV and HTML files first.");
+            if (parsedSchedule.length === 0 || !htmlContent) {
+                alert('Please upload both the PDF schedule and Blackboard HTML file first.');
                 return;
             }
 
-            const schedule = parseCSV(csvContent);
-            const rawPageText = extractTextFromHTML(htmlContent);
-            const pageText = rawPageText.replace(/\s+/g, ' ').toLowerCase();
-            
-            // Get Global Time Setting
             const timeInput = document.getElementById('globalTime').value;
             const timeObj = formatTime12(timeInput);
             const expectedTimeDisplay = timeObj.display;
             const timeRegexStr = timeObj.regex;
 
+            const courseFilter = document.getElementById('courseFilter').value.trim().toUpperCase();
+
+            // Extract and flatten text from HTML
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlContent, 'text/html');
+            const rawPageText = doc.body.textContent || '';
+            const pageText = rawPageText.replace(/\s+/g, ' ').toLowerCase();
+
             const tbody = document.getElementById('resultBody');
             tbody.innerHTML = '';
 
-            schedule.forEach(row => {
-                const modMatch = row.module.match(/(\d+)/);
-                if (!modMatch) return;
-                const modNum = modMatch[1];
+            // Filter schedule if course filter set
+            let schedule = parsedSchedule;
+            if (courseFilter) {
+                schedule = schedule.filter(e => e.course.toUpperCase().includes(courseFilter));
+            }
 
-                // Parse Date from CSV (ignoring any time in CSV)
-                const dateOnly = row.dueDate.split(' ')[0]; 
-                let dateParts = dateOnly.split(/[-/]/);
-                let month, day, year;
-                if (dateParts[0].length === 4) {
-                    year = parseInt(dateParts[0]); month = parseInt(dateParts[1]); day = parseInt(dateParts[2]);
-                } else {
-                    month = parseInt(dateParts[0]); day = parseInt(dateParts[1]); year = parseInt(dateParts[2]);
-                    if (year < 100) year += 2000;
-                }
+            if (schedule.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-orange-500 italic">No entries match the course filter "${courseFilter}".</td></tr>`;
+                return;
+            }
 
-                // Construct full expected string for display
-                const fullExpected = `${dateOnly} ${expectedTimeDisplay}`;
-                
-                const modRegex = new RegExp(`module\\s*0?${modNum}\\b`, 'gi');
-                
-                let foundDate = false;
-                let foundTime = false;
-                let statusHtml = '';
-                let contextHtml = 'Module text not found.';
-                let rowClass = 'bg-yellow-50';
+            for (const entry of schedule) {
+                const { course, module, startDateStr } = entry;
+
+                const dueDate = computeDueDate(startDateStr, module);
+                if (!dueDate) continue;
+
+                const month = dueDate.getMonth() + 1;
+                const day = dueDate.getDate();
+                const year = dueDate.getFullYear().toString().slice(-2);
+                const fullExpectedDate = `${month}/${day}/${year}`;
+                const fullExpected = `${fullExpectedDate} ${expectedTimeDisplay}`;
+
+                // Search page text for module reference
+                const modRegex = new RegExp(`module\\s*0?${module}\\b`, 'gi');
+                const dateRegex = new RegExp(`${month}[/\\-]${day}`, 'g');
+                const timeRegex = new RegExp(timeRegexStr, 'i');
 
                 const matches = [...pageText.matchAll(modRegex)];
 
+                let foundDate = false;
+                let foundTime = false;
+                let statusHtml = '';
+                let contextHtml = 'Module text not found in Blackboard HTML.';
+                let rowClass = 'bg-yellow-50';
+
                 if (matches.length > 0) {
-                    const dateRegex = new RegExp(`${month}[/-]${day}`, 'g');
-                    const timeRegex = new RegExp(timeRegexStr, 'i');
-                    
                     for (const m of matches) {
                         const index = m.index;
-                        const start = Math.max(0, index - 300);
-                        const end = Math.min(pageText.length, index + 300);
+                        const start = Math.max(0, index - 400);
+                        const end = Math.min(pageText.length, index + 400);
                         const snippet = pageText.substring(start, end);
 
                         if (dateRegex.test(snippet)) {
@@ -205,9 +427,9 @@
                             if (timeRegex.test(snippet)) {
                                 foundTime = true;
                             }
-                            
+
                             if (foundDate && foundTime) {
-                                statusHtml = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">MATCH</span>';
+                                statusHtml = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"><i class="fas fa-check mr-1"></i>MATCH</span>';
                                 const highlighted = snippet.replace(m[0], `<b class="bg-yellow-200 text-black px-1 uppercase">${m[0]}</b>`);
                                 contextHtml = `...${highlighted}...`;
                                 rowClass = 'bg-white';
@@ -217,29 +439,30 @@
                     }
 
                     if (!foundDate) {
-                        statusHtml = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">DATE MISMATCH</span>';
-                        contextHtml = `Found "Module ${modNum}" but date ${month}/${day} not nearby.`;
+                        statusHtml = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800"><i class="fas fa-times mr-1"></i>DATE MISMATCH</span>';
+                        contextHtml = `Found "Module ${module}" in HTML but expected date ${month}/${day} was not nearby.`;
                         rowClass = 'bg-red-50';
                     } else if (!foundTime) {
-                        statusHtml = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">TIME MISMATCH</span>';
-                        contextHtml = `Found "Module ${modNum}" and date, but time ${expectedTimeDisplay} not nearby.`;
+                        statusHtml = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800"><i class="fas fa-clock mr-1"></i>TIME MISMATCH</span>';
+                        contextHtml = `Found "Module ${module}" and date, but time ${expectedTimeDisplay} not nearby.`;
                         rowClass = 'bg-orange-50';
                     }
-
                 } else {
                     statusHtml = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">NOT FOUND</span>';
+                    rowClass = 'bg-slate-50';
                 }
 
                 const tr = document.createElement('tr');
                 tr.className = `${rowClass} border-b border-slate-100 hover:bg-slate-50 transition-colors`;
                 tr.innerHTML = `
-                    <td class="p-4 font-medium text-slate-700">${row.module}</td>
+                    <td class="p-4 font-medium text-slate-700 text-xs">${course}</td>
+                    <td class="p-4 font-medium text-slate-700">Module ${module}</td>
                     <td class="p-4 text-slate-600">${fullExpected}</td>
                     <td class="p-4">${statusHtml}</td>
                     <td class="p-4 text-xs text-slate-500 font-mono leading-relaxed">${contextHtml}</td>
                 `;
                 tbody.appendChild(tr);
-            });
+            }
         }
     </script>
 </body>

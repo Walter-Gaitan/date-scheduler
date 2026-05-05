@@ -7,6 +7,8 @@
     <title>Blackboard Module Scheduler</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- PDF.js for parsing PDF schedule tables -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
 
@@ -44,12 +46,13 @@
                     <!-- Load Course Preset -->
                     <div class="mb-5">
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                            Upload Schedule (.docx)
+                            Upload Schedule (.docx or .pdf)
                         </label>
-                        <input type="file" id="courseFile" accept=".docx" onchange="handleFileUpload(this)"
+                        <input type="file" id="courseFile" accept=".docx,.pdf" onchange="handleFileUpload(this)"
                             class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 mb-2">
+                        <p id="fileLoadStatus" class="text-xs text-slate-400 mb-2"></p>
 
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 mt-4">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 mt-2">
                             Select Course
                         </label>
                         <select id="courseSelect" onchange="loadCoursePreset()" disabled
@@ -142,6 +145,11 @@
 
     <!-- Mammoth.js for .docx parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script>
+        // Set PDF.js worker path
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
 
     <script>
         document.getElementById('startDate').valueAsDate = new Date();
@@ -153,14 +161,31 @@
             const file = input.files[0];
             if (!file) return;
 
-            const reader = new FileReader();
-            reader.onload = function (event) {
-                const arrayBuffer = event.target.result;
-                mammoth.convertToHtml({ arrayBuffer: arrayBuffer })
-                    .then(displayResult)
-                    .catch(handleError);
-            };
-            reader.readAsArrayBuffer(file);
+            const statusEl = document.getElementById('fileLoadStatus');
+            statusEl.textContent = 'Loading...';
+            statusEl.className = 'text-xs text-slate-400 mb-2';
+
+            if (file.name.toLowerCase().endsWith('.pdf')) {
+                handlePdfUpload(file, statusEl);
+            } else {
+                // DOCX path (existing)
+                const reader = new FileReader();
+                reader.onload = function (event) {
+                    const arrayBuffer = event.target.result;
+                    mammoth.convertToHtml({ arrayBuffer: arrayBuffer })
+                        .then(result => {
+                            displayResult(result);
+                            statusEl.textContent = '\u2713 Loaded: ' + file.name;
+                            statusEl.className = 'text-xs text-indigo-600 font-bold mb-2';
+                        })
+                        .catch(err => {
+                            handleError(err);
+                            statusEl.textContent = '\u2717 Error loading file.';
+                            statusEl.className = 'text-xs text-red-500 mb-2';
+                        });
+                };
+                reader.readAsArrayBuffer(file);
+            }
         }
 
         function displayResult(result) {
@@ -258,7 +283,11 @@
             }
 
             populateCourseDropdown();
-            alert(`Parsed ${semesterSchedule.length} courses from the document.`);
+            if (semesterSchedule.length === 0) {
+                alert('No courses found. The document table structure may not be recognized.');
+            } else {
+                alert(`Parsed ${semesterSchedule.length} courses from the document.`);
+            }
         }
 
         function parseDateToIso(dateStr) {
@@ -279,7 +308,161 @@
             return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         }
 
+        // ─── PDF Upload & Parsing ────────────────────────────────────────────────
+
+        async function handlePdfUpload(file, statusEl) {
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                semesterSchedule = [];
+
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+                    const textContent = await page.getTextContent();
+                    // Capture actual rendered width from PDF.js (item.width)
+                    const pageItems = textContent.items
+                        .map(item => ({
+                            text: item.str,
+                            x: item.transform[4],
+                            y: item.transform[5],
+                            w: item.width || 0
+                        }))
+                        .filter(item => item.text.length > 0);
+
+                    const rows = groupItemsIntoRows(pageItems, 4);
+                    parsePdfRows(rows);
+                }
+
+                populateCourseDropdown();
+
+                if (semesterSchedule.length === 0) {
+                    statusEl.textContent = '\u26A0 No courses found. Check PDF format.';
+                    statusEl.className = 'text-xs text-orange-500 font-bold mb-2';
+                    alert('No courses were found in the PDF. The table layout may not be recognized.');
+                } else {
+                    statusEl.textContent = '\u2713 Loaded: ' + file.name + ' (' + semesterSchedule.length + ' courses)';
+                    statusEl.className = 'text-xs text-indigo-600 font-bold mb-2';
+                    alert('Parsed ' + semesterSchedule.length + ' courses from the PDF.');
+                }
+            } catch (err) {
+                console.error(err);
+                statusEl.textContent = '\u2717 Error parsing PDF: ' + err.message;
+                statusEl.className = 'text-xs text-red-500 mb-2';
+                alert('Error parsing PDF: ' + err.message);
+            }
+        }
+
+        /**
+         * Group text items by Y coordinate (bottom-up in PDF space).
+         * Items within `tolerance` units of each other share the same row.
+         */
+        function groupItemsIntoRows(items, tolerance) {
+            // Sort top-to-bottom (high Y first in PDF space), left-to-right
+            items.sort((a, b) => b.y - a.y || a.x - b.x);
+            const rows = [];
+            let curRow = [];
+            let curY = null;
+
+            for (const item of items) {
+                if (curY === null || Math.abs(item.y - curY) <= tolerance) {
+                    curRow.push(item);
+                    // Keep curY as the first item's Y (don't average — avoids drift)
+                    if (curY === null) curY = item.y;
+                } else {
+                    if (curRow.length) rows.push(curRow);
+                    curRow = [item];
+                    curY = item.y;
+                }
+            }
+            if (curRow.length) rows.push(curRow);
+            return rows;
+        }
+
+        /**
+         * Strategy: For each row, concatenate all text items (sorted L→R),
+         * joining adjacent fragments directly or with a space for wider gaps.
+         * Then extract course code and the first date found after it using regex.
+         *
+         * TDACM PDF columns (approx): Day | Course No. | Name | Start | End | ...
+         * We grab: Course Code + first date after code = Start Date.
+         */
+        function parsePdfRows(rows) {
+
+            const courseCodeRe = /\b([A-Z]{2,5}\d{3,4}[\.\-]?\d{0,3}[A-Z]{0,2})\b/;
+            const dateRe       = /\b(\d{1,2})[\-\/](\d{1,2})[\-\/](\d{2,4})\b/g;
+            const dayNames     = /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)$/i;
+
+            let currentDay = '';
+
+            for (const rowItems of rows) {
+                if (rowItems.length === 0) continue;
+
+                // Sort items left-to-right
+                const sorted = [...rowItems].sort((a, b) => a.x - b.x);
+
+                // Build row string: join fragments (gap ≤ 3) directly;
+                // larger gaps get a space so regex word boundaries work.
+                let rowText = sorted[0].text;
+                let prevEndX = sorted[0].x + (sorted[0].w > 0 ? sorted[0].w : sorted[0].text.length * 4);
+
+                for (let i = 1; i < sorted.length; i++) {
+                    const it  = sorted[i];
+                    const gap = it.x - prevEndX;
+                    rowText  += (gap <= 3) ? it.text : ' ' + it.text;
+                    prevEndX  = it.x + (it.w > 0 ? it.w : it.text.length * 4);
+                }
+
+                // Skip blank or header rows
+                if (!rowText.trim()) continue;
+                if (/^(day|course|no\.|name|start|end|skip|no-class|holiday|#\s*mod)/i.test(rowText.trim())) continue;
+
+                // Extract course code
+                const codeMatch = rowText.match(courseCodeRe);
+                if (!codeMatch) continue;
+                const code = codeMatch[1];
+                const codeEnd = codeMatch.index + codeMatch[0].length;
+
+                // Extract day name from start of row (if present before the code)
+                const prefix = rowText.slice(0, codeMatch.index).trim();
+                if (dayNames.test(prefix)) currentDay = prefix;
+
+                // Find the FIRST date that appears AFTER the course code in the row text
+                dateRe.lastIndex = codeEnd;
+                const dateMatch = dateRe.exec(rowText);
+                if (!dateMatch) continue;
+                const startDate = parseDateToIso(dateMatch[0]);
+                if (!startDate) continue;
+
+                // Gather any additional dates after the start date as potential skip dates
+                // (in this PDF they are not skip dates but we include for completeness)
+                const skipDates = [];
+                const seen = new Set([startDate]);
+                let dm;
+                dateRe.lastIndex = dateMatch.index + dateMatch[0].length;
+                while ((dm = dateRe.exec(rowText)) !== null) {
+                    const iso = parseDateToIso(dm[0]);
+                    if (iso && !seen.has(iso)) { skipDates.push(iso); seen.add(iso); }
+                }
+
+                // Extract course name: text between code end and first date
+                const nameRaw = rowText.slice(codeEnd, dateMatch.index).trim();
+
+                // Skip duplicates
+                if (semesterSchedule.find(c => c.code === code)) continue;
+
+                semesterSchedule.push({
+                    code:       code,
+                    name:       nameRaw + (currentDay ? ' (' + currentDay + ')' : ''),
+                    startDate:  startDate,
+                    skipDates:  skipDates
+                });
+            }
+        } // end parsePdfRows
+
+        // ─── End PDF Parsing ─────────────────────────────────────────────────────
+
         function populateCourseDropdown() {
+
             const select = document.getElementById('courseSelect');
             select.innerHTML = '<option value="">Manual Input</option>';
 
